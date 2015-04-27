@@ -1,0 +1,5 @@
+In general it's not allowed for a window to move itself, especially animate itself.
+Results vary on different systems and window managers.  It behaves pretty well
+on OpenBox, whereas KWin doesn't like to position windows such that they are
+mostly offscreen, and on Wayland it's totally impossible for a window to control
+its own position at all.
