@@ -1,8 +1,8 @@
-import QtQuick 2.2
-import QtQuick.Controls 1.1
-import QtQuick.Dialogs 1.1
-import QtQuick.Window 2.1
-import Qt.labs.folderlistmodel 1.0
+import QtQuick 2.11
+import QtQuick.Controls 2.4
+import QtQuick.Window 2.11
+import Qt.labs.folderlistmodel 2.11
+//import Qt.labs.handlers 1.0
 //import "../../shared"
 
 Window {
@@ -47,22 +47,24 @@ Window {
 
         DropArea {
             id: dragTarget
-
-            property string colorKey
-            //    property alias dropProxy: dragTarget
-
             anchors.fill: parent
-
+            property var lastUrls: []
             onDropped: {
+                console.log("source " + drop.source + " dropped text:" + drop.text + " keys:" + drop.keys + " formats:" + drop.formats + " len " + drop.formats.length)
                 if (drop.urls.length > 0)
-                    console.log("dropped URLs " + drop.urls)
-                else
-                    console.log(drop.source + " dropped " + drop.keys)
-                for (var prop in Drag.mimeData) {
-                    console.log("Object item:", prop, "=", anObject[prop])
+                    console.log("dropped URLs " + drop.urls + " or " + JSON.stringify(drop.urls))
+//                console.log("assuming formats is just one string: " + drop.formats + " = " + drop.getDataAsString(drop.formats))
+//                var formatsArray = Object.assign({}, drop.formats) // doesn't work
+//                console.log("formats as JS array " + formatsArray)
+//                for (var fmt in drop.formats) // doesn't work: can't iterate QStringList with a for loop
+//                    console.log("" + fmt, "=", drop.getDataAsString(fmt) + " or " + drop.getDataAsArrayBuffer(fmt))
+                for (var i = 0; i < drop.formats.length; ++i) {
+                    var fmt = drop.formats[i]
+                    console.log(i + ": " + fmt + " = '", drop.getDataAsString(fmt) + "' or " + drop.getDataAsArrayBuffer(fmt))
                 }
+//                var urlsObj = Object.assign(lastUrls, drop.urls) // doesn't work
+//                console.log("urls again " + lastUrls + " or " + JSON.stringify(lastUrls))
             }
-            //    keys: [ colorKey ]
 
             states: [
                 State {
@@ -90,6 +92,11 @@ Window {
                 border.color: root.color
                 border.width: 2
 
+                Drag.mimeData: { "text/plain" : folderModel.folder + fileName, "text/uri-list" : folderModel.folder + fileName }
+                Drag.active: dragArea.drag.active
+                Drag.dragType: Drag.Automatic
+//                Drag.proposedAction: ? Qt.CopyAction : Qt.MoveAction : Qt.LinkAction // there's apparently no declarative way in MouseArea etc.
+
                 Component.onCompleted: {
                     x = (index * defaultTileGrid) % (Math.floor(root.width / defaultTileGrid) * defaultTileGrid)
                     y = Math.floor((index * defaultTileGrid) / root.width) * (defaultTileGrid + defaultLabelHeight)
@@ -109,6 +116,7 @@ Window {
                     source: fileIsDir ? "resources/folder.png" : folderModel.folder + fileName
                     scale: defaultSize / Math.max(sourceSize.width, sourceSize.height)
                     antialiasing: true
+//                    Component.onCompleted: if (!fileIsDir) console.log("folder " + folderModel.folder + " file " + source)
                 }
                 Text {
                     color: "white"
@@ -137,20 +145,20 @@ Window {
                         hoverEnabled: true
                         anchors.fill: parent
                         drag.target: fileFrame
+                        drag.onActiveChanged: console.log("dragging " + JSON.stringify(fileFrame.Drag.mimeData) + " supported actions " + fileFrame.Drag.supportedActions + " proposed " + fileFrame.Drag.proposedAction)
                         onPressed: fileFrame.z = ++root.highestZ;
                         onEntered: fileFrame.state = "focused"
                         onExited: fileFrame.state = ""
-                        onPositionChanged: if (pressed) {
-                            console.log("fileFrame x " + fileFrame.x)
-                            if (fileFrame.x < 0 || fileFrame.x > root.width) {
-                                Drag.active = true;
-                                Drag.mimeData = { "text/plain" : fileName }
-                                console.log("startExternal " + Drag.mimeData);
-                                Drag.startExternal();
-                            }
+                        onDoubleClicked: if (fileIsDir) folderModel.folder += fileName + "/"
+                        onPositionChanged: {
+                            if (mouse.modifiers & Qt.ControlModifier)
+                                fileFrame.Drag.proposedAction = Qt.CopyAction
+                            else if (mouse.modifiers & Qt.AltModifier)
+                                fileFrame.Drag.proposedAction = Qt.LinkAction
+                            else
+                                fileFrame.Drag.proposedAction = Qt.MoveAction
                         }
 
-                        onDoubleClicked: if (fileIsDir) folderModel.folder += fileName + "/"
                         onWheel: {
                             if (wheel.modifiers & Qt.ControlModifier) {
                                 fileFrame.rotation += wheel.angleDelta.y / 120 * 5;
