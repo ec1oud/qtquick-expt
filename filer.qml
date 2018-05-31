@@ -1,9 +1,8 @@
-import QtQuick 2.11
+import QtQuick 2.12
 import QtQuick.Controls 2.4
-import QtQuick.Window 2.11
-import Qt.labs.folderlistmodel 2.11
-//import Qt.labs.handlers 1.0
-//import "../../shared"
+import QtQuick.Window 2.12
+import Qt.labs.folderlistmodel 2.12
+import Qt.labs.handlers 1.0
 
 Window {
     id: root
@@ -28,6 +27,7 @@ Window {
             anchors.verticalCenter: parent.verticalCenter
             anchors.margins: 3
             text: folderModel.folder
+            onAccepted: folderModel.folder = text
             DropArea {
                 anchors.fill: parent
                 onDropped: {
@@ -53,17 +53,10 @@ Window {
                 console.log("source " + drop.source + " dropped text:" + drop.text + " keys:" + drop.keys + " formats:" + drop.formats + " len " + drop.formats.length)
                 if (drop.urls.length > 0)
                     console.log("dropped URLs " + drop.urls + " or " + JSON.stringify(drop.urls))
-//                console.log("assuming formats is just one string: " + drop.formats + " = " + drop.getDataAsString(drop.formats))
-//                var formatsArray = Object.assign({}, drop.formats) // doesn't work
-//                console.log("formats as JS array " + formatsArray)
-//                for (var fmt in drop.formats) // doesn't work: can't iterate QStringList with a for loop
-//                    console.log("" + fmt, "=", drop.getDataAsString(fmt) + " or " + drop.getDataAsArrayBuffer(fmt))
                 for (var i = 0; i < drop.formats.length; ++i) {
                     var fmt = drop.formats[i]
                     console.log(i + ": " + fmt + " = '", drop.getDataAsString(fmt) + "' or " + drop.getDataAsArrayBuffer(fmt))
                 }
-//                var urlsObj = Object.assign(lastUrls, drop.urls) // doesn't work
-//                console.log("urls again " + lastUrls + " or " + JSON.stringify(lastUrls))
             }
 
             states: [
@@ -86,6 +79,7 @@ Window {
             }
             Rectangle {
                 id: fileFrame
+                objectName: fileName
                 color: "transparent"
                 width: defaultSize
                 height: width + defaultLabelHeight
@@ -93,19 +87,25 @@ Window {
                 border.width: 2
 
                 Drag.mimeData: { "text/plain" : folderModel.folder + fileName, "text/uri-list" : folderModel.folder + fileName }
-                Drag.active: dragArea.drag.active
+                Drag.active: dh.active
                 Drag.dragType: Drag.Automatic
-//                Drag.proposedAction: ? Qt.CopyAction : Qt.MoveAction : Qt.LinkAction // there's apparently no declarative way in MouseArea etc.
+                Drag.proposedAction: dh.centroid !== undefined && dh.centroid.modifiers & Qt.ControlModifier ? Qt.CopyAction :
+                                     dh.centroid !== undefined && dh.centroid.modifiers & Qt.AltModifier ? Qt.LinkAction : Qt.MoveAction
 
                 Component.onCompleted: {
                     x = (index * defaultTileGrid) % (Math.floor(root.width / defaultTileGrid) * defaultTileGrid)
                     y = Math.floor((index * defaultTileGrid) / root.width) * (defaultTileGrid + defaultLabelHeight)
                 }
 
+                state: Drag.active ? "dragging" : hh.hovered ? "hovered" : ""
                 states: [
                     State {
-                        name: "focused"
+                        name: "hovered"
                         PropertyChanges { target: fileFrame; border.color: "red" }
+                    },
+                    State {
+                        name: "dragging"
+                        PropertyChanges { target: fileFrame; border.color: "blue" }
                     }
                 ]
                 Image {
@@ -116,7 +116,6 @@ Window {
                     source: fileIsDir ? "resources/folder.png" : folderModel.folder + fileName
                     scale: defaultSize / Math.max(sourceSize.width, sourceSize.height)
                     antialiasing: true
-//                    Component.onCompleted: if (!fileIsDir) console.log("folder " + folderModel.folder + " file " + source)
                 }
                 Text {
                     color: "white"
@@ -132,52 +131,46 @@ Window {
                     font.pointSize: 6
                 }
 
-                PinchArea {
-                    anchors.fill: parent
-                    pinch.target: fileFrame
-                    pinch.minimumRotation: -360
-                    pinch.maximumRotation: 360
-                    pinch.minimumScale: 0.1
-                    pinch.maximumScale: 10
-                    onPinchFinished: fileFrame.border.color = "black";
-                    MouseArea {
-                        id: dragArea
-                        hoverEnabled: true
-                        anchors.fill: parent
-                        drag.target: fileFrame
-                        drag.onActiveChanged: console.log("dragging " + JSON.stringify(fileFrame.Drag.mimeData) + " supported actions " + fileFrame.Drag.supportedActions + " proposed " + fileFrame.Drag.proposedAction)
-                        onPressed: fileFrame.z = ++root.highestZ;
-                        onEntered: fileFrame.state = "focused"
-                        onExited: fileFrame.state = ""
-                        onDoubleClicked: if (fileIsDir) folderModel.folder += fileName + "/"
-                        onPositionChanged: {
-                            if (mouse.modifiers & Qt.ControlModifier)
-                                fileFrame.Drag.proposedAction = Qt.CopyAction
-                            else if (mouse.modifiers & Qt.AltModifier)
-                                fileFrame.Drag.proposedAction = Qt.LinkAction
-                            else
-                                fileFrame.Drag.proposedAction = Qt.MoveAction
-                        }
+                PinchHandler {
+                    enabled: !fileIsDir
+                    minimumScale: 0.1
+                    maximumScale: 10
+                }
 
-                        onWheel: {
-                            if (wheel.modifiers & Qt.ControlModifier) {
-                                fileFrame.rotation += wheel.angleDelta.y / 120 * 5;
-                                if (Math.abs(fileFrame.rotation) < 4)
-                                    fileFrame.rotation = 0;
-                            } else {
-                                fileFrame.rotation += wheel.angleDelta.x / 120;
-                                if (Math.abs(fileFrame.rotation) < 0.6)
-                                    fileFrame.rotation = 0;
-                                var scaleBefore = image.scale;
-                                image.scale += image.scale * wheel.angleDelta.y / 120 / 10;
-                                fileFrame.x -= image.width * (image.scale - scaleBefore) / 2.0;
-                                fileFrame.y -= image.height * (image.scale - scaleBefore) / 2.0;
-                            }
+                HoverHandler {
+                    id: hh
+                }
+
+                TapHandler {
+                    onPressedChanged: if (pressed) fileFrame.z = ++root.highestZ
+                    onDoubleTapped: {
+                        if (fileIsDir) {
+                            folderModel.folder += fileName + "/"
+                        } else {
+                            fileFrame.scale = 1
+                            var path = folderModel.folder + fileName
+                            console.log("opening " + path)
+                            Qt.openUrlExternally(path)
                         }
                     }
+                }
+
+                DragHandler {
+                    id: dh
+                    onActiveChanged: if (active) console.log("dragging " + JSON.stringify(fileFrame.Drag.mimeData) + " supported actions " + fileFrame.Drag.supportedActions + " proposed " + fileFrame.Drag.proposedAction)
+                    // TODO it's silly that the icon never gets moved because DnD begins as soon as the drag threshold is exceeded; so why do we need DragHandler?
+//                    onCentroidChanged: {
+//                        if (centroid.modifiers & Qt.ControlModifier)
+//                            fileFrame.Drag.proposedAction = Qt.CopyAction
+//                        else if (centroid.modifiers & Qt.AltModifier)
+//                            fileFrame.Drag.proposedAction = Qt.LinkAction
+//                        else
+//                            fileFrame.Drag.proposedAction = Qt.MoveAction
+//                    }
                 }
             }
         }
     }
 
+    Shortcut { sequence: StandardKey.Quit; onActivated: Qt.quit() }
 }
